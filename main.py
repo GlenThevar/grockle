@@ -13,7 +13,7 @@ llm = ChatBedrockConverse(
 
 @cl.on_chat_start
 async def start():
-    await cl.Message(content="Hello! How can I help you").send()
+    await cl.Message(content="Hello! How can I help you plan your travel ?").send()
     
     
     
