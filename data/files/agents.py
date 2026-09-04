@@ -8,6 +8,9 @@ from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
 from tools import (
     get_flight_information_duffel,
     get_weather_information_openweather,
+    get_weather_information_open_meteo,
+    get_flight_information_layovers_serpapi,
+    get_flight_information_nolayovers_serpapi,
     flight_specialist,
     weather_specialist,
 )
@@ -27,7 +30,11 @@ def create_llm():
 
 # Flight Agent
 flight_agent = create_llm()
-flight_tools = [get_flight_information_duffel]
+flight_tools = [
+    get_flight_information_duffel,
+    get_flight_information_layovers_serpapi,
+    get_flight_information_nolayovers_serpapi,
+]
 flight_tool_map = {tool.name: tool for tool in flight_tools}
 flight_agent_with_tools = flight_agent.bind_tools(flight_tools)
 
@@ -67,7 +74,10 @@ def run_flight_agent(query: str):
 # Weather Agent
 
 weather_agent = create_llm()
-weather_tools = [get_weather_information_openweather]
+weather_tools = [
+    get_weather_information_openweather,
+    get_weather_information_open_meteo,
+]
 weather_tool_map = {tool.name: tool for tool in weather_tools}
 weather_agent_with_tools = weather_agent.bind_tools(weather_tools)
 
