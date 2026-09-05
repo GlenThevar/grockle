@@ -1,5 +1,7 @@
 import os
 import requests
+import numpy as np
+from datetime import datetime
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 
@@ -229,5 +231,92 @@ def get_weather_information_open_meteo(
     except requests.exceptions.RequestException as e:
         return f"Open-Meteo API error: {str(e)}"
 
+    except Exception as e:
+        return f"Unexpected error: {str(e)}"
+
+
+@tool
+def get_historical_weather_prediction_open_meteo(
+    city: str,
+    date: str,
+) -> str:
+    """
+    Predicts weather for dates beyond the 16-day forecast limit by averaging
+    historical weather data from Open-Meteo for the past 5 years.
+
+    Args:
+        city: City name (e.g., 'Mumbai')
+        date: Future date in 'YYYY-MM-DD' format
+
+    Returns:
+        A formatted string with predicted weather metrics and historical context.
+    """
+    try:
+
+        geo_res = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1},
+            timeout=30,
+        )
+        geo_res.raise_for_status()
+        results = geo_res.json().get("results", [])
+
+        if not results:
+            return f"Could not find location: {city}"
+
+        lat, lon = results[0]["latitude"], results[0]["longitude"]
+
+        target_dt = datetime.strptime(date, "%Y-%m-%d")
+        month_day = target_dt.strftime("%m-%d")
+        target_year = target_dt.year
+
+        max_temps, min_temps, precip_sums = [], [], []
+
+        for i in range(1, 5 + 1):
+            past_year = target_year - i
+            past_date_str = f"{past_year}-{month_day}"
+
+            res = requests.get(
+                "https://archive-api.open-meteo.com/v1/archive",
+                params={
+                    "latitude": lat,
+                    "longitude": lon,
+                    "start_date": past_date_str,
+                    "end_date": past_date_str,
+                    "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
+                    "timezone": "auto",
+                },
+                timeout=30,
+            )
+            res.raise_for_status()
+            daily = res.json().get("daily", {})
+
+            if daily.get("temperature_2m_max"):
+                max_temps.append(daily["temperature_2m_max"][0])
+                min_temps.append(daily["temperature_2m_min"][0])
+                precip_sums.append(daily["precipitation_sum"][0])
+
+        if not max_temps:
+            return f"No historical data found for {city} on {date}."
+
+        avg_max = np.mean(max_temps)
+        avg_min = np.min(min_temps)
+        avg_precip = np.mean(precip_sums)
+
+        rain_likelihood = (
+            "High" if avg_precip > 5.0 else ("Moderate" if avg_precip > 1.0 else "Low")
+        )
+
+        return f"""
+            City: {city}
+            Requested Target Date: {date}
+            Prediction Status: Estimated (Averaged from historical data over the past 5 years)
+            Predicted Max Temperature: {avg_max:.1f}°C
+            Predicted Min Temperature: {avg_min:.1f}°C
+            Average Precipitation: {avg_precip:.2f} mm ({rain_likelihood} chance of rain)
+            """.strip()
+
+    except requests.exceptions.RequestException as e:
+        return f"Open-Meteo Archive API error: {str(e)}"
     except Exception as e:
         return f"Unexpected error: {str(e)}"
