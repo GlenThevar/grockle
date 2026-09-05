@@ -1,4 +1,3 @@
-from http import client
 import os
 import requests
 import serpapi
@@ -7,6 +6,17 @@ from langchain_core.tools import tool
 from datetime import date
 
 load_dotenv("../env/.env")
+
+
+@tool
+def flight_specialist(query: str) -> str:
+    """
+    Ask the flight specialist.
+    """
+
+    from agents.flight_agent import run_flight_agent
+
+    return run_flight_agent(query)
 
 
 @tool
@@ -119,244 +129,6 @@ def get_flight_information_duffel(
 
 
 @tool
-def flight_specialist(query: str) -> str:
-    """
-    Ask the flight specialist.
-    """
-
-    from agents import run_flight_agent
-
-    return run_flight_agent(query)
-
-
-@tool
-def weather_specialist(query: str) -> str:
-    """
-    Ask the weather specialist.
-    """
-
-    from agents import run_weather_agent
-
-    return run_weather_agent(query)
-
-
-@tool
-def get_weather_information_openweather(
-    city: str,
-    date: str,
-) -> str:
-    """
-    Get weather forecast for a city and date using Open Weather.
-
-    This tool can only be used for:
-    - Current weather
-    - Forecasts up to only 5 days ahead from the current date
-
-    Args:
-        city: City name (e.g. Mumbai)
-        date: Date in YYYY-MM-DD format
-
-    Returns:
-        Weather information.
-    """
-
-    api_key = os.getenv("OPENWEATHER_API_KEY")
-
-    if not api_key:
-        return "OPENWEATHER_API_KEY not found."
-
-    url = "https://api.openweathermap.org/data/2.5/forecast"
-
-    params = {
-        "q": city,
-        "appid": api_key,
-        "units": "metric",
-    }
-
-    try:
-
-        response = requests.get(
-            url,
-            params=params,
-            timeout=30,
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        forecasts = data.get("list", [])
-
-        if not forecasts:
-            return f"No weather forecast found for {city}."
-
-        matching_forecasts = []
-
-        for forecast in forecasts:
-
-            forecast_datetime = forecast["dt_txt"]
-
-            if forecast_datetime.startswith(date):
-
-                matching_forecasts.append(
-                    {
-                        "time": forecast_datetime,
-                        "temperature": forecast["main"]["temp"],
-                        "feels_like": forecast["main"]["feels_like"],
-                        "humidity": forecast["main"]["humidity"],
-                        "weather": forecast["weather"][0]["description"],
-                    }
-                )
-
-        if not matching_forecasts:
-            return (
-                f"No forecast available for {date}. "
-                f"OpenWeather forecast is limited to approximately 5 days."
-            )
-
-        results = []
-
-        for item in matching_forecasts:
-
-            results.append(f"""
-                Time: {item['time']}
-                Weather: {item['weather']}
-                Temperature: {item['temperature']}°C
-                Feels Like: {item['feels_like']}°C
-                Humidity: {item['humidity']}%
-            """.strip())
-
-        return "\n\n".join(results)
-
-    except requests.exceptions.RequestException as e:
-        return f"OpenWeather API error: {str(e)}"
-
-    except Exception as e:
-        return f"Unexpected error: {str(e)}"
-
-
-@tool
-def get_weather_information_open_meteo(
-    city: str,
-    date: str,
-) -> str:
-    """
-    Get weather forecast for a city and date using Open-Meteo.
-
-     This tool can only be used for:
-        - Current weather
-        - Forecasts up to 16 days ahead from the current date
-
-    Args:
-        city: City name (e.g. Mumbai)
-        date: Date in YYYY-MM-DD format
-
-    Returns:
-        Weather information.
-    """
-
-    try:
-
-        geo_response = requests.get(
-            "https://geocoding-api.open-meteo.com/v1/search",
-            params={
-                "name": city,
-                "count": 1,
-            },
-            timeout=30,
-        )
-
-        geo_response.raise_for_status()
-
-        geo_data = geo_response.json()
-
-        results = geo_data.get("results", [])
-
-        if not results:
-            return f"Could not find location: {city}"
-
-        latitude = results[0]["latitude"]
-        longitude = results[0]["longitude"]
-
-        weather_response = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": latitude,
-                "longitude": longitude,
-                "daily": (
-                    "weathercode,"
-                    "temperature_2m_max,"
-                    "temperature_2m_min,"
-                    "precipitation_probability_max"
-                ),
-                "timezone": "auto",
-                "forecast_days": 16,
-            },
-            timeout=30,
-        )
-
-        weather_response.raise_for_status()
-        weather_data = weather_response.json()
-        dates = weather_data["daily"]["time"]
-
-        if date not in dates:
-            print("No data")
-            return (
-                f"No forecast available for {date}. "
-                f"Open-Meteo typically provides forecasts for about 16 days."
-            )
-
-        index = dates.index(date)
-
-        max_temp = weather_data["daily"]["temperature_2m_max"][index]
-        min_temp = weather_data["daily"]["temperature_2m_min"][index]
-        rain_probability = weather_data["daily"]["precipitation_probability_max"][index]
-        weather_code = weather_data["daily"]["weathercode"][index]
-
-        weather_codes = {
-            0: "Clear sky",
-            1: "Mainly clear",
-            2: "Partly cloudy",
-            3: "Overcast",
-            45: "Fog",
-            48: "Depositing rime fog",
-            51: "Light drizzle",
-            53: "Moderate drizzle",
-            55: "Dense drizzle",
-            61: "Slight rain",
-            63: "Moderate rain",
-            65: "Heavy rain",
-            71: "Slight snow",
-            73: "Moderate snow",
-            75: "Heavy snow",
-            80: "Rain showers",
-            81: "Moderate rain showers",
-            82: "Violent rain showers",
-            95: "Thunderstorm",
-        }
-
-        weather_description = weather_codes.get(
-            weather_code,
-            f"Weather code {weather_code}",
-        )
-
-        return f"""
-            City: {city}
-            Date: {date}
-            Weather: {weather_description}
-            Max Temperature: {max_temp}°C
-            Min Temperature: {min_temp}°C
-            Chance of Rain: {rain_probability}%
-            """.strip()
-
-    except requests.exceptions.RequestException as e:
-        return f"Open-Meteo API error: {str(e)}"
-
-    except Exception as e:
-        return f"Unexpected error: {str(e)}"
-
-
-@tool
 def get_flight_information_nolayovers_serpapi(
     departure_id: str,
     arrival_id: str,
@@ -388,14 +160,12 @@ def get_flight_information_nolayovers_serpapi(
         A string containing the flight information retrieved from Google Flights.
     """
 
-    api_key = os.getenv("SERPAPI_API_KEY")
+    api_key = os.getenv("SERP_API_KEY")
 
     if not api_key:
         return "SERPAPI_API_KEY not found."
 
-    client = serpapi.Client(
-        api_key="00ce48528020f1eb062b0768e61f592005507fe471dca034c9eae6bd492c770e"
-    )
+    client = serpapi.Client(api_key=api_key)
 
     try:
 
@@ -415,7 +185,7 @@ def get_flight_information_nolayovers_serpapi(
             }
         )
 
-        offers = response["other_flights"]
+        offers = response.get("other_flights", [])
 
         if not offers:
             return "No flight offers found."
@@ -578,3 +348,113 @@ def get_flight_information_layovers_serpapi(
 
     except Exception as e:
         return [{"error": f"Serp API error: {str(e)}"}]
+
+
+@tool
+def get_flight_information_bookingdotcom(
+    from_id: str,
+    to_id: str,
+    depart_date: str = date.today().strftime("%Y-%m-%d"),
+    adults: int = 1,
+    children: str = "0",
+    stops: str = "none",
+    sort: str = "CHEAPEST",
+    currency_code: str = "INR",
+) -> list[dict]:
+    """
+    Search for flights on Booking.com via RapidAPI.
+
+    Args:
+        from_id: Origin location ID (e.g., 'BOM.AIRPORT').
+        to_id: Destination location ID (e.g., 'DEL.AIRPORT').
+        depart_date: Departure date in YYYY-MM-DD format.
+        adults: Number of adult passengers.
+        children: Child ages as comma-separated string (e.g., '0' or '8,12').
+        stops: 'none', '0' (direct), '1', or '2'.
+        sort: 'CHEAPEST', 'BEST', or 'FASTEST'.
+        currency_code: 3-letter currency code (e.g., 'INR', 'USD').
+
+    Returns:
+        A list of simplified flight offer dictionaries.
+    """
+    api_key = os.getenv("RAPIDAPI_KEY")
+    if not api_key:
+        return [{"error": "RAPIDAPI_KEY environment variable not found."}]
+
+    url = "https://booking-com15.p.rapidapi.com/api/v1/flights/searchFlights"
+
+    params = {
+        "fromId": from_id,
+        "toId": to_id,
+        "departDate": depart_date,
+        "stops": stops,
+        "pageNo": "1",
+        "adults": str(adults),
+        "children": children,
+        "sort": sort,
+        "cabinClass": "ECONOMY",
+        "currency_code": currency_code,
+    }
+
+    headers = {
+        "x-rapidapi-key": api_key,
+        "x-rapidapi-host": "booking-com15.p.rapidapi.com",
+    }
+
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        flight_offers = data.get("data", {}).get("flightOffers", [])
+        if not flight_offers:
+            return []
+
+        results = []
+        for offer in flight_offers:
+            total_price_obj = offer.get("priceBreakdown", {}).get("total", {})
+            units = total_price_obj.get("units", 0)
+            nanos = total_price_obj.get("nanos", 0)
+            total_price = units + (nanos / 1e9)
+
+            itinerary = {
+                "token": offer.get("token"),
+                "trip_type": offer.get("tripType"),
+                "total_price": round(total_price, 2),
+                "currency": total_price_obj.get("currencyCode", currency_code),
+                "seats_remaining": offer.get("seatAvailability", {}).get(
+                    "numberOfSeatsAvailable"
+                ),
+                "segments": [],
+            }
+
+            for segment in offer.get("segments", []):
+                for leg in segment.get("legs", []):
+                    carrier_data = leg.get("carriersData", [{}])[0]
+                    itinerary["segments"].append(
+                        {
+                            "airline": carrier_data.get("name"),
+                            "flight_number": leg.get("flightInfo", {}).get(
+                                "flightNumber"
+                            ),
+                            "departure_airport": leg.get("departureAirport", {}).get(
+                                "code"
+                            ),
+                            "departure_time": leg.get("departureTime"),
+                            "arrival_airport": leg.get("arrivalAirport", {}).get(
+                                "code"
+                            ),
+                            "arrival_time": leg.get("arrivalTime"),
+                            "cabin_class": leg.get("cabinClass"),
+                            "duration_seconds": leg.get("totalTime"),
+                        }
+                    )
+
+            results.append(itinerary)
+
+        return results
+
+    except requests.exceptions.RequestException as e:
+        return [{"error": f"API Request failed: {str(e)}"}]
+    except Exception as e:
+        return [{"error": f"Unexpected error: {str(e)}"}]
