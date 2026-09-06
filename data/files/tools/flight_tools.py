@@ -1,11 +1,16 @@
 import os
+import json
 import requests
 import serpapi
+import sqlite3
 from dotenv import load_dotenv
+from typing import Any, Dict, List, Optional
 from langchain_core.tools import tool
 from datetime import date
 
 load_dotenv("../env/.env")
+
+DB_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "agentData.db")
 
 
 @tool
@@ -418,7 +423,6 @@ def get_flight_information_bookingdotcom(
             total_price = units + (nanos / 1e9)
 
             itinerary = {
-                "token": offer.get("token"),
                 "trip_type": offer.get("tripType"),
                 "total_price": round(total_price, 2),
                 "currency": total_price_obj.get("currencyCode", currency_code),
@@ -458,3 +462,184 @@ def get_flight_information_bookingdotcom(
         return [{"error": f"API Request failed: {str(e)}"}]
     except Exception as e:
         return [{"error": f"Unexpected error: {str(e)}"}]
+
+
+@tool
+def save_flight_direct_serpapi(
+    departure_airport: str,
+    arrival_airport: str,
+    outbound_date: str,
+    airline: str,
+    price: float,
+    currency: str,
+    departure_time: str,
+    arrival_time: str,
+    duration: int,
+) -> str:
+    """Saves direct flight data (SerpAPI) into FlightData_SerpApi_Direct table."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO FlightData_SerpApi_Direct 
+                (departure_airport, arrival_airport, outbound_date, airline, price, currency, departure_time, arrival_time, duration)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    departure_airport,
+                    arrival_airport,
+                    outbound_date,
+                    airline,
+                    price,
+                    currency,
+                    departure_time,
+                    arrival_time,
+                    duration,
+                ),
+            )
+        return "Successfully saved direct flight search result."
+    except Exception as e:
+        return f"Database error: {str(e)}"
+
+
+@tool
+def save_flight_layovers_serpapi(
+    departure_airport: str,
+    arrival_airport: str,
+    outbound_date: str,
+    price: float,
+    currency: str,
+    stops: int,
+    total_duration_minutes: int,
+    itinerary_details: Dict[str, Any],
+) -> str:
+    """Saves layover flight itinerary data (SerpAPI) into FlightData_SerpApi_Layovers table."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO FlightData_SerpApi_Layovers 
+                (departure_airport, arrival_airport, outbound_date, price, currency, stops, total_duration_minutes, raw_itinerary_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    departure_airport,
+                    arrival_airport,
+                    outbound_date,
+                    price,
+                    currency,
+                    stops,
+                    total_duration_minutes,
+                    json.dumps(itinerary_details),
+                ),
+            )
+        return "Successfully saved layover flight search result."
+    except Exception as e:
+        return f"Database error: {str(e)}"
+
+
+@tool
+def save_flight_bookingdotcom(
+    from_id: str,
+    to_id: str,
+    depart_date: str,
+    total_price: float,
+    currency: str,
+    seats_remaining: Optional[int],
+    itinerary_details: Dict[str, Any],
+) -> str:
+    """Saves Booking.com flight search results into FlightData_BookingDotCom table."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO FlightData_BookingDotCom 
+                (from_id, to_id, depart_date, total_price, currency, seats_remaining, raw_itinerary_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    from_id,
+                    to_id,
+                    depart_date,
+                    total_price,
+                    currency,
+                    seats_remaining,
+                    json.dumps(itinerary_details),
+                ),
+            )
+        return "Successfully saved Booking.com flight search result."
+    except Exception as e:
+        return f"Database error: {str(e)}"
+
+
+@tool
+def read_flight_database(
+    table_name: str,
+    departure_code: Optional[str] = None,
+    arrival_code: Optional[str] = None,
+    depart_date: Optional[str] = None,
+    limit: int = 10,
+) -> str:
+    """Reads saved flight search records from any flight database table.
+
+    Args:
+        table_name: Must be one of 'FlightData_SerpApi_Direct',
+          'FlightData_SerpApi_Layovers', or 'FlightData_BookingDotCom'.
+        departure_code: Filter by origin airport/location ID (optional).
+        arrival_code: Filter by destination airport/location ID (optional).
+        depart_date: Filter by date YYYY-MM-DD (optional).
+        limit: Max rows to return (default 10).
+    """
+    valid_tables = {
+        "FlightData_SerpApi_Direct": (
+            "departure_airport",
+            "arrival_airport",
+            "outbound_date",
+        ),
+        "FlightData_SerpApi_Layovers": (
+            "departure_airport",
+            "arrival_airport",
+            "outbound_date",
+        ),
+        "FlightData_BookingDotCom": ("from_id", "to_id", "depart_date"),
+    }
+
+    if table_name not in valid_tables:
+        return f"Invalid table name. Options: {list(valid_tables.keys())}"
+
+    dep_col, arr_col, date_col = valid_tables[table_name]
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            query = f"SELECT * FROM {table_name} WHERE 1=1"
+            params = []
+
+            if departure_code:
+                query += f" AND {dep_col} LIKE ?"
+                params.append(f"%{departure_code}%")
+            if arrival_code:
+                query += f" AND {arr_col} LIKE ?"
+                params.append(f"%{arrival_code}%")
+            if depart_date:
+                query += f" AND {date_col} = ?"
+                params.append(depart_date)
+
+            query += " ORDER BY id DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            if not rows:
+                return f"No records found in {table_name} matching criteria."
+
+            return str([dict(row) for row in rows])
+
+    except Exception as e:
+        return f"Database query error: {str(e)}"

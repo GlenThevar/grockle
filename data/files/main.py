@@ -45,6 +45,48 @@ def init_db(db_name="db/agentData.db"):
                 average_precipitation REAL
             )
             """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS FlightData_SerpApi_Direct (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT CURRENT_DATE,
+                departure_airport TEXT,
+                arrival_airport TEXT,
+                outbound_date TEXT,
+                airline TEXT,
+                price REAL,
+                currency TEXT,
+                departure_time TEXT,
+                arrival_time TEXT,
+                duration INTEGER
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS FlightData_SerpApi_Layovers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT CURRENT_DATE,
+                departure_airport TEXT,
+                arrival_airport TEXT,
+                outbound_date TEXT,
+                price REAL,
+                currency TEXT,
+                stops INTEGER,
+                total_duration_minutes INTEGER,
+                raw_itinerary_json TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS FlightData_BookingDotCom (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT CURRENT_DATE,
+                from_id TEXT,
+                to_id TEXT,
+                depart_date TEXT,
+                total_price REAL,
+                currency TEXT,
+                seats_remaining INTEGER,
+                raw_itinerary_json TEXT
+            )
+        """)
 
 
 @cl.on_chat_start
