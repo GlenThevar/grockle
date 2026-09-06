@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 from typing import Optional
 from langchain_core.tools import tool
 
-from data.files.agents.weather_agent import run_weather_agent
-
 load_dotenv("../env/.env")
 
 
