@@ -10,6 +10,8 @@ from tools.tourism_tools import (
     search_tripadvisor_things_to_do,
     search_tripadvisor_cruises,
     search_tourist_attractions_google_maps,
+    search_tourist_places_tavily,
+    search_tourist_places_anysearch,
 )
 
 load_dotenv("../env/.env")
@@ -31,6 +33,8 @@ tourism_tools = [
     search_tripadvisor_things_to_do,
     search_tripadvisor_cruises,
     search_tourist_attractions_google_maps,
+    search_tourist_places_tavily,
+    search_tourist_places_anysearch,
 ]
 tourism_tool_map = {tool.name: tool for tool in tourism_tools}
 tourism_agent_with_tools = tourism_agent.bind_tools(tourism_tools)

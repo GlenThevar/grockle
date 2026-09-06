@@ -1,6 +1,7 @@
 import os
 import requests
 import serpapi
+from tavily import TavilyClient
 from dotenv import load_dotenv
 from typing import Optional
 from langchain_core.tools import tool
@@ -357,3 +358,105 @@ def search_tourist_attractions_google_maps(
 
     except Exception as e:
         return f"SerpAPI Error: {str(e)}"
+
+
+@tool
+def search_tourist_places_tavily(
+    location: str,
+) -> str:
+    """
+    Search for tourist places, attractions, and travel itineraries using Tavily Search.
+
+    Args:
+        location: City or region to search for (e.g., 'Paris', 'Tokyo').
+
+    Returns:
+        Formatted summary of tourist destinations and attractions.
+    """
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return "Error: TAVILY_API_KEY environment variable is not set."
+
+    client = TavilyClient(api_key=api_key)
+    query = f"top tourist places to visit and attractions in {location}"
+
+    params = {
+        "query": query,
+        "search_depth": "basic",
+        "topic": "general",
+        "max_results": 10,
+        "chunks_per_source": 3,
+    }
+
+    try:
+        response = client.search(**params)
+        results = response.get("results", [])
+
+        if not results:
+            return f"No tourist places found for '{location}'."
+
+        formatted_places = []
+        for res in results:
+            title = res.get("title", "No Title")
+            content = res.get("content", "No description available.")
+
+            formatted_places.append(f"• **{title}**\n" f"  Overview: {content}")
+
+        return f"Top Attractions & Tourist Places in '{location}':\n\n" + "\n\n".join(
+            formatted_places
+        )
+
+    except Exception as e:
+        return f"Tavily Search Error: {str(e)}"
+
+
+@tool
+def search_tourist_places_anysearch(query: str) -> str:
+    """
+    Searches AnySearch for top travel guides and extracts the full page content from the best result.
+
+    Args:
+        query: Destination search topic (e.g. 'Best places to visit in Japan').
+
+    Returns:
+        Full extracted Markdown/Text content from the top search result page.
+    """
+    api_url = "https://api.anysearch.com/v1"
+    headers = {"Content-Type": "application/json"}
+
+    api_key = os.getenv("ANYSEARCH_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        search_payload = {"query": query, "max_results": 1}
+        search_res = requests.post(
+            f"{api_url}/search", json=search_payload, headers=headers, timeout=15
+        )
+        search_res.raise_for_status()
+
+        search_data = search_res.json()
+        results = search_data.get("data", {}).get("results", []) or search_data.get(
+            "results", []
+        )
+
+        if not results:
+            return f"No search results found for query: '{query}'"
+
+        first_url = results[0].get("url")
+        if not first_url:
+            return "Failed to parse target URL from search results."
+
+        extract_payload = {"url": first_url}
+        extract_res = requests.post(
+            f"{api_url}/extract", json=extract_payload, headers=headers, timeout=20
+        )
+        extract_res.raise_for_status()
+
+        extract_data = extract_res.json()
+        content = extract_data.get("data", {}).get("content", "No content extracted.")
+
+        return f"### Extracted Content from: {first_url}\n\n{content}"
+
+    except requests.exceptions.RequestException as e:
+        return f"AnySearch Pipeline Error: {str(e)}"
