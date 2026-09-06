@@ -9,6 +9,10 @@ from tools.weather_tools import (
     get_weather_information_openweather,
     get_weather_information_open_meteo,
     get_historical_weather_prediction_open_meteo,
+    save_openweather_data,
+    save_openmeteo_data,
+    save_historical_weather_data,
+    read_weather_database,
 )
 
 load_dotenv("../env/.env")
@@ -29,6 +33,10 @@ weather_tools = [
     get_weather_information_openweather,
     get_weather_information_open_meteo,
     get_historical_weather_prediction_open_meteo,
+    save_openweather_data,
+    save_openmeteo_data,
+    save_historical_weather_data,
+    read_weather_database,
 ]
 weather_tool_map = {tool.name: tool for tool in weather_tools}
 weather_agent_with_tools = weather_agent.bind_tools(weather_tools)
@@ -42,22 +50,33 @@ def run_weather_agent(query: str):
 
             TODAY'S DATE: {date.today().strftime('%Y-%m-%d')}
 
-            TOOL SELECTION RULES:
-            1. For dates within 0 to 5 days from today:
-            - Call `get_weather_information_openweather`.
+            WORKFLOW RULES (Follow in sequence):
 
-            2. For dates within 6 to 16 days from today:
-            - Call `get_weather_information_open_meteo`.
+            STEP 1: CHECK DATABASE FIRST
+            Always start by calling `read_weather_database` to check if weather data already exists for the target city and date.
+            - Choose the correct table:
+            - Dates 0-5 days from today -> 'WeatherData_OpenWeather'
+            - Dates 6-16 days from today -> 'WeatherData_OpenMeteo'
+            - Dates >16 days in future -> 'WeatherData_Historical'
 
-            3. For dates more than 16 days in the future:
-            - Call `get_historical_weather_prediction_open_meteo`.
+            STEP 2: API FALLBACK (Only if database returns no records)
+            If `read_weather_database` returns no data, call the appropriate API tool:
+            - 0 to 5 days from today -> `get_weather_information_openweather`
+            - 6 to 16 days from today -> `get_weather_information_open_meteo`
+            - >16 days in future -> `get_historical_weather_prediction_open_meteo`
+
+            STEP 3: SAVE API DATA
+            If an API tool was called in Step 2, immediately save that data using the matching save tool:
+            - OpenWeather data -> `save_openweather_data`
+            - OpenMeteo data -> `save_openmeteo_data`
+            - Historical data -> `save_historical_weather_data`
 
             OUTPUT RULES:
-            - Never hallucinate weather data; rely strictly on tool responses.
-            - If data is available, summarize concisely with:
+            - Never hallucinate weather data.
+            - Summarize results concisely with:
             1. Weather conditions
-            2. Temperatures (Max/Min or Feels Like)
-            3. Tailored travel advice (e.g., carrying an umbrella, packing heavy coats).
+            2. Temperatures
+            3. Tailored travel advice
             """),
         HumanMessage(content=query),
     ]

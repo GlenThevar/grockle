@@ -1,17 +1,63 @@
+import sqlite3
+import os
 import chainlit as cl
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage
+from datetime import date
 
 from agents.main_agent import llm_with_tools, tool_map
 
 
+def init_db(db_name="db/agentData.db"):
+    with sqlite3.connect(db_name) as conn:
+        os.makedirs(os.path.dirname(db_name), exist_ok=True)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS WeatherData_OpenWeather (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT CURRENT_DATE,
+                regionName TEXT,
+                date TEXT,
+                temperature REAL,
+                feels_like REAL,
+                humidity REAL
+            )
+            """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS WeatherData_OpenMeteo (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT CURRENT_DATE,
+                regionName TEXT,
+                date TEXT,
+                max_temperature REAL,
+                min_temperature REAL,
+                chance_of_rain REAL
+            )
+            """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS WeatherData_Historical (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT CURRENT_DATE,
+                regionName TEXT,
+                date TEXT,
+                predicted_max_temperature REAL,
+                predicted_min_temperature REAL,
+                average_precipitation REAL
+            )
+            """)
+
+
 @cl.on_chat_start
 async def start():
+    init_db()
     cl.user_session.set(
         "messages",
         [SystemMessage(content=f"""
             You are Grockle, an AI travel assistant.
 
             Your long-term responsibility is to help users plan trips from start to finish.
+            
+            TODAY'S DATE: {date.today().strftime('%Y-%m-%d')}
 
             Current Capabilities:
             - Flight search (direct and connecting options).
@@ -50,7 +96,7 @@ async def main(message: cl.Message):
 
         messages = cl.user_session.get("messages")
         if messages is None:
-            messages = [SystemMessage(content=f"""
+            messages = [SystemMessage(content="""
                 You are Grockle, an AI travel assistant.
 
                 Your long-term responsibility is to help users plan trips from start to finish.
@@ -86,7 +132,7 @@ async def main(message: cl.Message):
         messages.append(HumanMessage(content=message.content))  # type: ignore
 
         while True:
-            response = llm_with_tools.invoke(messages)
+            response = await llm_with_tools.ainvoke(messages)
             messages.append(response)  # type: ignore
 
             print(f"\nLLM Response: {response.content}\n")
@@ -100,7 +146,7 @@ async def main(message: cl.Message):
                 )
 
                 tool = tool_map[tool_call["name"]]
-                result = tool.invoke(tool_call["args"])
+                result = await tool.ainvoke(tool_call["args"])
 
                 print(f"\nTool result: {result}\n")
 

@@ -1,11 +1,15 @@
 import os
 import requests
 import numpy as np
+import sqlite3
 from datetime import datetime
+from typing import Optional
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 
 load_dotenv("../env/.env")
+
+DB_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "agentData.db")
 
 
 @tool
@@ -320,3 +324,141 @@ def get_historical_weather_prediction_open_meteo(
         return f"Open-Meteo Archive API error: {str(e)}"
     except Exception as e:
         return f"Unexpected error: {str(e)}"
+
+
+@tool
+def save_openweather_data(
+    region_name: str,
+    date: str,
+    temperature: float,
+    feels_like: float,
+    humidity: float,
+) -> str:
+    """Saves OpenWeather data into the WeatherData_OpenWeather database table."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO WeatherData_OpenWeather (regionName, date, temperature, feels_like, humidity)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (region_name, date, temperature, feels_like, humidity),
+            )
+        return f"Successfully saved OpenWeather data for {region_name} on {date}."
+    except Exception as e:
+        return f"Database error: {str(e)}"
+
+
+@tool
+def save_openmeteo_data(
+    region_name: str,
+    date: str,
+    max_temperature: float,
+    min_temperature: float,
+    chance_of_rain: float,
+) -> str:
+    """Saves Open-Meteo forecast data into the WeatherData_OpenMeteo database table."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO WeatherData_OpenMeteo (regionName, date, max_temperature, min_temperature, chance_of_rain)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (
+                    region_name,
+                    date,
+                    max_temperature,
+                    min_temperature,
+                    chance_of_rain,
+                ),
+            )
+        return f"Successfully saved Open-Meteo data for {region_name} on {date}."
+    except Exception as e:
+        return f"Database error: {str(e)}"
+
+
+@tool
+def save_historical_weather_data(
+    region_name: str,
+    date: str,
+    predicted_max_temperature: float,
+    predicted_min_temperature: float,
+    average_precipitation: float,
+) -> str:
+    """Saves historical prediction weather data into the WeatherData_Historical database table."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO WeatherData_Historical (regionName, date, predicted_max_temperature, predicted_min_temperature, average_precipitation)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (
+                    region_name,
+                    date,
+                    predicted_max_temperature,
+                    predicted_min_temperature,
+                    average_precipitation,
+                ),
+            )
+        return f"Successfully saved historical weather prediction for {region_name} on {date}."
+    except Exception as e:
+        return f"Database error: {str(e)}"
+
+
+@tool
+def read_weather_database(
+    table_name: str,
+    region_name: Optional[str] = None,
+    date: Optional[str] = None,
+    limit: int = 10,
+) -> str:
+    """Reads weather records from the database.
+
+    Args:
+        table_name: One of 'WeatherData_OpenWeather',
+          'WeatherData_OpenMeteo', or 'WeatherData_Historical'.
+        region_name: Filter by city/region name (optional).
+        date: Filter by date YYYY-MM-DD (optional).
+        limit: Maximum number of rows to return (default 10).
+    """
+    allowed_tables = {
+        "WeatherData_OpenWeather",
+        "WeatherData_OpenMeteo",
+        "WeatherData_Historical",
+    }
+    if table_name not in allowed_tables:
+        return f"Invalid table name. Choose from: {', '.join(allowed_tables)}"
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            query = f"SELECT * FROM {table_name} WHERE 1=1"
+            params = []
+
+            if region_name:
+                query += " AND regionName LIKE ?"
+                params.append(f"%{region_name}%")
+            if date:
+                query += " AND date = ?"
+                params.append(date)
+
+            query += " ORDER BY id DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            if not rows:
+                return f"No records found in {table_name} for the given filters."
+            results = [dict(row) for row in rows]
+            return str(results)
+
+    except Exception as e:
+        return f"Database read error: {str(e)}"
